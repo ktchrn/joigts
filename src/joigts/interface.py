@@ -225,13 +225,16 @@ def _split_spectrum_to_chunks(
 
 # linelist management
 def get_linelist(linelist_source: str, linelist_name: str) -> QTable:
-    if linelist_source == 'linetools':
-        return _get_linetools_linelist(linelist_name)
-    else:
-        raise ValueError(f"Unrecognized `linelist_source`: {linelist_source}.")
+    key = (linelist_source, linelist_name)
+    if key not in _LINELISTS:
+        if linelist_source == 'linetools':
+            _load_linetools_linelist(linelist_name)
+        else:
+            raise ValueError(f"Unrecognized `linelist_source`: {linelist_source}.")
+    return _LINELISTS[key]
 
 
-def _get_linetools_linelist(linelist_name):
+def _load_linetools_linelist(linelist_name):
     key = ('linetools', linelist_name)
     if key not in _LINELISTS:
         from linetools.lists.linelist import LineList
@@ -239,7 +242,6 @@ def _get_linetools_linelist(linelist_name):
         ll['species'] = [n.split(' ')[0] for n in ll['name']]
         ll['name'].info.name = 'line_name'
         _LINELISTS[key] = ll
-    return _LINELISTS[key]
 
 
 # other spectrum utilities
