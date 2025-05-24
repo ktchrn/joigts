@@ -93,12 +93,12 @@ def get_voigt_flux_model_synthesizer(
 
 def _expand_parameter_dicts_to_arrays(
         log10_N_dict: dict,
-        b_km_s_dict: dict,
         vcen_km_s_dict: dict,
+        b_km_s_dict: dict,
         comp_names: ArrayLike
         ) -> Tuple[ArrayLike, ArrayLike, ArrayLike]:
     log10_N_arr = jnp.array([log10_N_dict[key] for key in comp_names], dtype=float)
-    b_km_s_arr = jnp.array([b_km_s_dict[key] for key in comp_names], dtype=float)
     vcen_km_s_arr = jnp.array([vcen_km_s_dict[key] for key in comp_names], dtype=float)
+    b_km_s_arr = jnp.array([b_km_s_dict[key] for key in comp_names], dtype=float)
 
     return log10_N_arr, vcen_km_s_arr, b_km_s_arr
