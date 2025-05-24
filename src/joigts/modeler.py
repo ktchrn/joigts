@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 import numpyro as npr
 
-from interface import Spectrum
+from joigts.interface import Spectrum
 
 
 def get_likelihood_gaussian(
