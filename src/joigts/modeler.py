@@ -37,7 +37,8 @@ def get_likelihood_gp(
         flux_model_func: Callable,
         spectrum: Spectrum,
         gp_amp=0.1,
-        gp_scale=2.0) -> Callable:
+        gp_scale=2.0,
+        mask=None) -> Callable:
     import tinygp
 
     @tinygp.helpers.dataclass
@@ -52,24 +53,80 @@ def get_likelihood_gp(
     wave = np.array(spectrum.data['wavelength'].value)
     nflux_observed = np.array(spectrum.data['normed_flux'])
     nflux_stdev = np.array(spectrum.data['normed_flux_sd'])
+    if mask is None:
+        mask = (np.ones(nflux_stdev.size) == 1)
+
+    plain_kernel = gp_amp**2 * tinygp.kernels.quasisep.Matern32(gp_scale)
+    mult_kernel = Multiplied(plain_kernel)
+
     def likelihood_gp(*flux_model_args, **flux_model_kwargs):
         with npr.handlers.scope(prefix=prefix, divider='_'):
-            plain_kernel = gp_amp**2 * tinygp.kernels.quasisep.Matern32(gp_scale)
-            mult_kernel = Multiplied(plain_kernel)
 
             flux_model = flux_model_func(*flux_model_args, **flux_model_kwargs)
             npr.deterministic('flux_model', flux_model)
 
             gp = tinygp.GaussianProcess(
                 kernel=mult_kernel,
-                X=[wave, flux_model],
-                mean=lambda X: X[1], diag=nflux_stdev**2)
+                X=[wave[mask], flux_model[mask]],
+                mean=lambda X: X[1], diag=nflux_stdev[mask]**2)
             npr.sample(
                 'likelihood', 
                 gp.numpyro_dist(),
-                obs=nflux_observed)
+                obs=nflux_observed[mask])
     return likelihood_gp
-                
+
+
+def get_likelihood_approx_gp(
+        flux_model_func: Callable,
+        spectrum: Spectrum,
+        gp_amp=0.1,
+        gp_scale=2.0,
+        mask=None) -> Callable:
+    import joigts.hilbert_basis as hb
+
+    prefix = spectrum.name
+    wave = np.array(spectrum.data['wavelength'].value)
+    nflux_observed = np.array(spectrum.data['normed_flux'])
+    nflux_stdev = np.array(spectrum.data['normed_flux_sd'])
+    if mask is None:
+        mask = (np.ones(nflux_stdev.size) == 1)
+
+    x = hb.center_x(wave)
+    full_domain_half_width = hb.matern_52_full_domain_half_width(
+        gp_scale, x[-1]
+        )
+    basis_size = hb.matern_52_basis_size(
+        gp_scale, full_domain_half_width
+        )
+
+    design_matrix = (hb.get_matern_52_spectral_density_func(
+            full_domain_half_width, basis_size
+            )(gp_amp, gp_scale) *
+            hb.eigenfunctions(wave, full_domain_half_width, basis_size)
+        )
+
+    def likelihood_approx_gp(*flux_model_args, **flux_model_kwargs):
+        with npr.handlers.scope(prefix=prefix, divider='_'):
+            flux_model = flux_model_func(*flux_model_args, **flux_model_kwargs)
+            npr.deterministic('flux_model', flux_model)
+
+            cont_amps = npr.sample(
+                'continuum_amps',
+                npr.distributions.Normal(0, np.ones(basis_size))
+                )
+            continuum_model = npr.deterministic(
+                'continuum_model', 1+design_matrix @ cont_amps
+                )
+            full_flux_model = flux_model * continuum_model
+            npr.sample(
+                'flux_approx_gp_gaussian_likelihood', 
+                npr.distributions.Normal(
+                    loc=full_flux_model[mask],
+                    scale=nflux_stdev[mask]),
+                obs=nflux_observed[mask],
+                )
+    return likelihood_approx_gp
+
 
 def get_voigt_flux_model_synthesizer(
         normed_flux_synthesizer: Callable,

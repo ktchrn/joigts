@@ -60,6 +60,65 @@ def get_normed_voigt_flux_synthesizer(
     return synthesize
 
 
+def get_windowed_normed_voigt_flux_synthesizer(
+        component_group_lines: QTable,
+        eval_wave: u.Quantity,
+        factor=1.0,
+        synth_vpad=np.inf*u.km/u.s) -> Callable:
+    """
+    Get a function for a given component group and 
+    evaluation wavelength array that takes column densities,
+    centroid velocities, and broadening parameters and returns
+    transmittances (aka normalized fluxes).
+
+    Parameters
+    ----------
+    component_group_lines : QTable
+        QTable of component group lines
+    eval_wave : astropy.QTable.QTable
+        QTable of spectrum chunk
+
+    Returns
+    -------
+    """
+    c_in_km_s = aco.c.to('km/s').value
+    Γ_ν0 = (component_group_lines['gamma'] * component_group_lines['wrest'] / aco.c).to('').value
+
+    z0 = ((eval_wave[:, None] /
+          component_group_lines['wrest']).to('').value /
+          (1+component_group_lines['zcen']) - 1)
+    tau_shape = z0.shape
+    
+    synth_wmin = component_group_lines['wmin'] * (1 - (synth_vpad/aco.c).to(''))
+    synth_wmax = component_group_lines['wmax'] * (1 + (synth_vpad/aco.c).to(''))
+    active_synth_mask = (
+        (synth_wmin <= eval_wave[:, None]) & (eval_wave[:, None] <= synth_wmax)
+    )
+    wave_inds, line_inds = np.where(active_synth_mask)
+    z0_active = z0[wave_inds, line_inds]
+
+    norm_factor = (
+        component_group_lines['wrest'].to('cm').value *
+        component_group_lines['f'].value *
+        opacity_conversion_constant)
+
+    def synthesize(log10_N, vcen_km_s, b_km_s):
+        tau = jnp.zeros(tau_shape)
+        tau_flat = ((10**log10_N[line_inds] *
+            norm_factor[line_inds]) *
+            astro_voigt_profile(
+                centroid_redshift=(vcen_km_s/c_in_km_s)[line_inds],
+                b_c=(b_km_s/c_in_km_s)[line_inds],
+                Γ_ν0=Γ_ν0[line_inds],
+                eval_redshift=z0_active,
+            )
+        )
+        tau = jnp.place(tau, active_synth_mask, tau_flat, inplace=False).sum(axis=1)
+        return jnp.exp(-tau)
+
+    return synthesize
+
+
 def get_convolved_spectrum_func(
         lsf_func: Callable,
         eval_wave: u.Quantity,
