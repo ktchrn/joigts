@@ -54,7 +54,7 @@ def get_likelihood_gp(
     nflux_observed = np.array(spectrum.data['normed_flux'])
     nflux_stdev = np.array(spectrum.data['normed_flux_sd'])
     if mask is None:
-        mask = (np.ones(nflux_stdev.size) == 1)
+        mask = _get_mask_if_None(spectrum)
 
     plain_kernel = gp_amp**2 * tinygp.kernels.quasisep.Matern32(gp_scale)
     mult_kernel = Multiplied(plain_kernel)
@@ -89,7 +89,7 @@ def get_likelihood_approx_gp(
     nflux_observed = np.array(spectrum.data['normed_flux'])
     nflux_stdev = np.array(spectrum.data['normed_flux_sd'])
     if mask is None:
-        mask = (np.ones(nflux_stdev.size) == 1)
+        mask = _get_mask_if_None(spectrum)
 
     x = hb.center_x(wave)
     full_domain_half_width = hb.matern_52_full_domain_half_width(
@@ -159,3 +159,11 @@ def _expand_parameter_dicts_to_arrays(
     b_km_s_arr = jnp.array([b_km_s_dict[key] for key in comp_names], dtype=float)
 
     return log10_N_arr, vcen_km_s_arr, b_km_s_arr
+
+
+def _get_mask_if_None(spectrum):
+    if 'mask' in spectrum.data.columns:
+        mask = np.array(spectrum.data['mask'] == 1)
+    else:
+        mask = (np.ones(len(spectrum.data)) == 1)
+    return mask
